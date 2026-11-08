@@ -147,6 +147,22 @@ import FTWShared
         #expect(lines[1].text == "FTW stopped control because it lacks fresh phase currents for the main fuse check.")
     }
 
+    /// A device line goes only when a block or a quiet source held for all
+    /// of it. Two hours of stale readings are not hidden by a last minute
+    /// in which the source also went offline.
+    @Test func aPartOverlapKeepsTheDeviceLine() {
+        func stale(_ from: Double, _ to: Double) -> JournalSpan {
+            JournalSpan(id: 1, subject: "ev:easee", driver: "easee", kind: "ev", status: "no_contact", reason: "telemetry_stale",
+                        severity: "warning", startMs: from, endMs: to, updatedMs: to)
+        }
+        let quiet = JournalSpan(id: 2, subject: "source:easee", driver: "easee", kind: "source", status: "offline", reason: "telemetry_stale",
+                                severity: "warning", startMs: Self.local(11, 59), endMs: Self.local(12, 0), updatedMs: Self.local(12, 0))
+        let long = happened(JournalAnswer(spans: [stale(Self.local(10, 0), Self.local(12, 0)), quiet], notices: []))
+        #expect(long.count == 2)
+        let inside = happened(JournalAnswer(spans: [stale(Self.local(11, 59), Self.local(12, 0)), quiet], notices: []))
+        #expect(inside.count == 1)
+    }
+
     @Test func beforeMidnightSaysYesterday() {
         let span = JournalSpan(id: 1, subject: "battery:sungrow", driver: "sungrow", kind: "battery", status: "no_contact",
                                reason: "command_failed", startMs: Self.local(-2, 10), endMs: Self.local(-2, 30))

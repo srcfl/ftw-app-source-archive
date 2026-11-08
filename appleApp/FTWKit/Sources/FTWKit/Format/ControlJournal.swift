@@ -81,8 +81,11 @@ public struct JournalSpan: Equatable, Sendable, Identifiable {
     public var needsLook: Bool { severity == "warning" || severity == "alarm" }
 
     /// Whether two stretches share any time; an open one runs to `nowMs`.
-    func overlaps(_ other: JournalSpan, nowMs: Double) -> Bool {
-        startMs <= (other.endMs ?? nowMs) && other.startMs <= (endMs ?? nowMs)
+    /// Whether this stretch held for all of `other`, give or take the time
+    /// between two of the journal's samples.
+    func covers(_ other: JournalSpan, nowMs: Double) -> Bool {
+        let margin = ControlFeedback.joinMs * 2
+        return startMs <= other.startMs + margin && (endMs ?? nowMs) >= (other.endMs ?? nowMs) - margin
     }
 }
 
@@ -189,7 +192,7 @@ extension ControlFeedback {
     /// row's words; a dispatch block says FTW was not in control and why; a
     /// source says the device was not reporting; a plan slot behind the plan
     /// gets a line of its own. A device line that only repeats a dispatch
-    /// block or a quiet source in the same time is left out, and back-to-back
+    /// block or a quiet source for all of its time is left out, and back-to-back
     /// stretches of one verdict read as one. Nothing here is the phone's own
     /// verdict.
     public static func happened(_ answer: JournalAnswer, sources: [String: Source] = [:], zone: TimeZone = .current, nowMs: Double) -> [JournalEntry] {
@@ -205,8 +208,8 @@ extension ControlFeedback {
         let quiet = looked.filter { $0.kind == "source" }
         let kept = looked.filter { span in
             if ["dispatch", "source", "slot"].contains(span.kind) { return true }
-            if dispatchReasons.contains(span.reason), blocks.contains(where: { $0.reason == span.reason && $0.overlaps(span, nowMs: nowMs) }) { return false }
-            if span.reason == "telemetry_stale", quiet.contains(where: { $0.driver == span.driver && $0.overlaps(span, nowMs: nowMs) }) { return false }
+            if dispatchReasons.contains(span.reason), blocks.contains(where: { $0.reason == span.reason && $0.covers(span, nowMs: nowMs) }) { return false }
+            if span.reason == "telemetry_stale", quiet.contains(where: { $0.driver == span.driver && $0.covers(span, nowMs: nowMs) }) { return false }
             return true
         }
         var entries = joined(kept).map { entry($0, sources: sources, zone: zone, nowMs: nowMs) }

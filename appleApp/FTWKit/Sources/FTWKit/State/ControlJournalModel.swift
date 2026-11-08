@@ -49,9 +49,10 @@ public final class ControlJournal {
         return ControlFeedback.happened(answer, sources: site.session.sources, zone: site.householdZone, nowMs: nowMs ?? site.scheduler.nowMs)
     }
 
-    /// Asked by the control sheet.
+    /// Asked by the control sheet. An old box is asked again each time, so
+    /// one that updates while the app runs shows its journal.
     public func read() async {
-        guard canRead, phase != .oldBox else { return }
+        guard canRead else { return }
         generation += 1
         let mine = generation
         do {
@@ -66,8 +67,10 @@ public final class ControlJournal {
             phase = .oldBox
             answer = nil
             problem = nil
+        } catch is CancellationError {
+            return
         } catch {
-            guard mine == generation else { return }
+            guard mine == generation, !Task.isCancelled else { return }
             problem = ControlWords.text("Your box didn’t answer. Open this again to ask.")
         }
     }
