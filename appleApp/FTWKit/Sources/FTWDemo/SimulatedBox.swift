@@ -89,6 +89,9 @@ public final class SimulatedBox {
     /// A battery that does the opposite of what FTW asked, as Core then
     /// reports it: asked for 812 W one way while it runs the other.
     public var batteryNotFollowing = false
+    /// A Core with the control journal (GET /api/control/journal). Off, it
+    /// is a box from before it, which answers 404.
+    public var keepsJournal = true
 
     public nonisolated static let modes: [ModeInfo] = [
         ModeInfo(key: "planner_passive_arbitrage", label: "Passive arbitrage", tooltip: "Charge from the cheapest available source (PV when sunny, grid during cheap hours). Never exports from battery.", tier: "primary"),
@@ -518,6 +521,7 @@ public final class SimulatedBox {
     /// Priced beside the route, never from the method, as the box does.
     static let routes: [(method: String, path: String, tier: Tier, op: String?)] = [
         ("GET", "/api/status", .read, nil),
+        ("GET", "/api/control/journal", .read, nil),
         ("GET", "/api/notifications/rules", .read, nil),
         ("PUT", "/api/notifications/rules", .configure, nil),
         ("GET", "/api/cloud", .configure, nil),
@@ -740,6 +744,8 @@ public final class SimulatedBox {
                 "phase_powers": .array((0..<3).map { .number((perPhase + Double($0) * 90).rounded()) }),
                 "control_feedback": .array(controlFeedback(now)),
             ])
+        case ("GET", "/api/control/journal"):
+            return keepsJournal ? (200, journalJSON(nowMs: now, query: query)) : (404, [:])
         case ("GET", "/api/energy/daily"):
             let days = max(1, min(90, Int(query["days"] ?? "7") ?? 7))
             let rows: [JSON] = (0..<days).reversed().map { offset in

@@ -36,6 +36,19 @@ public struct ControlRow: Equatable, Sendable, Identifiable {
     public var requestedA: Double?
     public var offeredA: Double?
     public var deviceLimitA: Double?
+    /// The current the charger signals to the car now.
+    public var pilotA: Double?
+    public var dynamicLimitA: Double?
+    /// The current the charger lets the car take now, when its driver
+    /// reports it below the order; `limitedBy` names the cause when the
+    /// driver shows it, and `make` the charger.
+    public var limitA: Double?
+    public var limitedBy: String?
+    public var make: String?
+    /// The one phase a one-phase car charges on under a three-phase order,
+    /// and the most it takes there.
+    public var chargingPhase: String?
+    public var chargingPhaseMaxW: Double?
     public var toleranceW: Double?
     public var deviceReason: String?
     public var commandAtMs: Double?
@@ -72,6 +85,13 @@ public struct ControlRow: Equatable, Sendable, Identifiable {
         requestedA = j["requested_a"]?.number
         offeredA = j["offered_a"]?.number
         deviceLimitA = j["device_limit_a"]?.number
+        pilotA = j["pilot_a"]?.number
+        dynamicLimitA = j["dynamic_limit_a"]?.number
+        limitA = j["limit_a"]?.number
+        limitedBy = j["limited_by"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+        make = j["make"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+        chargingPhase = j["charging_phase"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+        chargingPhaseMaxW = j["charging_phase_max_w"]?.number
         toleranceW = j["tolerance_w"]?.number
         deviceReason = j["device_reason"]?.string.flatMap { $0.isEmpty ? nil : $0 }
         commandAtMs = j["command_at_ms"]?.number.flatMap { $0 > 0 ? $0 : nil }
@@ -227,9 +247,13 @@ public enum ControlFeedback {
         "waiting_response": "Adjusting", "no_command": "No command yet", "not_connected": "No car connected",
         "no_plan_budget": "Waiting for the plan", "pv_surplus_pause": "Waiting for spare solar", "wake_kick": "Starting the charger",
         "vehicle_complete": "Car is full", "vehicle_limit_completion": "Car reached its limit", "vehicle_not_requesting": "Car not taking power",
+        "vehicle_declined": "Car stopped charging",
         "battery_full": "Battery full", "battery_nearly_full": "Battery nearly full", "battery_nearly_empty": "Battery nearly empty",
-        "core_limit": "Limited by FTW", "fuse_limit": "Limited by the main fuse", "fuse_cooldown": "Waiting after a fuse limit",
+        "core_limit": "Limited by FTW", "fuse_limit": "Limited by the main fuse", "fuse_cooldown": "Waiting after a site power limit",
+        "import_limit": "Limited by the hourly import limit",
         "charger_limit": "Limited by FTW’s charger setting", "device_limit": "Charger limit", "offered_current_lower": "Charger offers less current",
+        "load_balancer_limit": "Limited by the charger’s load balancing", "charger_pilot_limit": "Limited by the charger",
+        "one_phase": "Charging on one phase",
         "device_fault": "Device fault", "telemetry_stale": "No fresh readings", "readings_lost": "Lost control",
         "command_failed": "Commands failing", "command_unconfirmed": "Command not confirmed", "default_failed": "Cannot hand back control",
         "response_unknown": "No power reading", "observe_only": "Monitoring only", "disabled": "Disabled", "device_control": "Own control",
@@ -253,6 +277,7 @@ public enum ControlFeedback {
         case "vehicle_complete": return w.text("Not charging: the car reports that it is full.")
         case "vehicle_limit_completion": return w.text("Not charging: the car reached its own charge limit.")
         case "vehicle_not_requesting": return w.text("The car is not asking for power right now.")
+        case "vehicle_declined": return w.text("The charger reports that the car finished or paused charging. That does not confirm the car’s level or its charge limit.")
         case "waiting_response":
             return w.format("Moving to %@. %@ usually responds within %@.", target(row), capital(name), w.text(row.kind == "ev" ? "two minutes" : "15 seconds"))
         case "no_command": return w.text("FTW has not sent a command since it started.")
@@ -267,11 +292,31 @@ public enum ControlFeedback {
         case "battery_nearly_empty":
             return w.format("Giving %@ of %@ at %@. A battery limits discharge when it is nearly empty.", power(actual), power(row.sentW), percent(row.batterySoc))
         case "core_limit": return w.format("FTW’s safety limits set the target to %@.", target(row))
-        case "fuse_limit": return w.format("FTW lowered the rate to %@ to protect the main fuse. It rises when the house uses less.", target(row))
-        case "fuse_cooldown": return w.text("FTW waits a moment after a fuse limit before it raises the rate.")
+        case "fuse_limit": return w.format("FTW lowered the rate to %@ to protect the main fuse.", target(row))
+        case "import_limit": return w.format("FTW lowered the rate to %@ to keep this hour’s grid import within its limit.", target(row))
+        case "fuse_cooldown": return w.text("FTW waits a moment after a site power limit before it raises the rate.")
         case "charger_limit": return w.text("The charger limit in FTW’s settings caps the rate.")
         case "device_limit": return w.format("The charger’s own limit is %@, below the %@ FTW asked for.", amps(row.deviceLimitA), amps(row.requestedA))
-        case "offered_current_lower": return w.format("The charger offers %@, below the %@ FTW asked for.", amps(row.offeredA), amps(row.requestedA))
+        case "offered_current_lower":
+            // The driver's own limit explains the lower current, unless the
+            // offer itself is already lower than the order.
+            if row.limitA?.isFinite == true, !offerBelowOrder(row) {
+                return w.format("The charger lets the car take %@, below the %@ FTW asked for.", amps(row.limitA), amps(row.requestedA))
+            }
+            return w.format("The charger offers %@, below the %@ FTW asked for.", amps(row.offeredA), amps(row.requestedA))
+        case "charger_pilot_limit":
+            return w.format("The charger signals %@ to the car, below the %@ FTW asked for, and the car takes %@. The charger does not say why.", amps(row.pilotA), amps(row.requestedA), power(actual))
+        case "load_balancer_limit":
+            if let make = row.make {
+                return w.format("%@ limits the charger to %@ with its load balancing. FTW asked for %@; the car takes %@.", make, amps(row.limitA), amps(row.requestedA), power(actual))
+            }
+            return w.format("The charger’s load balancing limits it to %@. FTW asked for %@; the car takes %@.", amps(row.limitA), amps(row.requestedA), power(actual))
+        case "one_phase":
+            let phase = row.chargingPhase ?? w.text("one phase")
+            if let most = row.chargingPhaseMaxW, most.isFinite {
+                return w.format("The car charges on %@ only, at most %@. FTW plans with what it takes.", phase, power(most))
+            }
+            return w.format("The car charges on %@ only. FTW plans with what it takes.", phase)
         case "power_below_target", "power_above_target": return w.format("Asked for %@, delivering %@.", target(row), power(actual))
         case "power_wrong_direction": return w.format("Asked for %@, but it is %@ %@.", target(row), doing(row, actual), power(actual))
         case "no_power_response": return w.format("Asked for %@, but it delivers no power.", target(row))
@@ -295,6 +340,11 @@ public enum ControlFeedback {
         case "device_control": return w.format("%@ runs its own mode. FTW is not sending commands.", capital(name))
         case "site_meter_stale": return w.text("FTW stopped control because the grid meter readings are out of date.")
         case "site_phase_currents_stale": return w.text("FTW stopped control because it lacks fresh phase currents for the main fuse check.")
+        // Why the site may not dispatch, from the box's setup.
+        case "setup_measurement_only": return w.text("FTW is set to measure only, so it sends no commands.")
+        case "setup_restart_required": return w.text("The setup changed. FTW sends no commands until the box restarts.")
+        case "setup_meter_identity_unconfirmed": return w.text("FTW sends no commands until the grid meter confirms it is the one chosen in setup.")
+        case "setup_meter_identity_changed": return w.text("The grid meter is not the one chosen in setup, so FTW sends no commands.")
         default: return w.format("The box reports “%@”, which this version cannot describe.", row.reason)
         }
     }
@@ -311,9 +361,18 @@ public enum ControlFeedback {
         case "site_meter_stale", "site_phase_currents_stale": return w.text("Check the grid meter’s connection.")
         case "device_limit": return w.text("Raise the limit in the charger’s app if you want faster charging.")
         case "offered_current_lower": return w.text("Check the charger’s load balancing and limits.")
+        case "charger_pilot_limit": return w.text("Look for an active limit in the charger’s app.")
+        case "load_balancer_limit": return w.text("If it happens often, compare the charger’s load balancing with the main fuse set in FTW.")
+        case "vehicle_declined": return w.text("Check the car’s charge limit and schedule.")
         case "observe_only": return w.text("Turn on control in the device settings if you want FTW to steer it.")
         default: return ""
         }
+    }
+
+    /// The charger offers less than FTW ordered, by more than rounding.
+    static func offerBelowOrder(_ row: ControlRow) -> Bool {
+        guard let offered = row.offeredA, offered.isFinite, let asked = row.requestedA, asked.isFinite else { return false }
+        return offered + 0.5 < asked
     }
 
     static func proof(_ row: ControlRow, _ zone: TimeZone) -> String {
@@ -410,8 +469,16 @@ public enum ControlFeedback {
         if row.batterySoc?.isFinite == true { out.append((w.text("Battery charge"), percent(row.batterySoc))) }
         if let t = row.toleranceW, t.isFinite { out.append((w.text("Response tolerance"), "±\(power(t))")) }
         if row.requestedA?.isFinite == true { out.append((w.text("Requested current"), amps(row.requestedA))) }
-        if row.offeredA?.isFinite == true { out.append((w.text("Charger offer"), amps(row.offeredA))) }
+        if row.pilotA?.isFinite == true { out.append((w.text("Actual pilot current"), amps(row.pilotA))) }
+        if row.dynamicLimitA?.isFinite == true {
+            out.append((w.text("Dynamic current setting"), amps(row.dynamicLimitA)))
+        } else if row.offeredA?.isFinite == true {
+            out.append((w.text("Reported current setting"), amps(row.offeredA)))
+        }
         if row.deviceLimitA?.isFinite == true { out.append((w.text("Charger limit"), amps(row.deviceLimitA))) }
+        if row.limitA?.isFinite == true {
+            out.append((w.text(row.limitedBy == "load_balancer" ? "Load balancing allows" : "Charger lets the car take"), amps(row.limitA)))
+        }
         guard let e = row.siteEvidence else { return out }
         for (label, v) in [("Grid before", e.gridBeforeW), ("Grid after", e.gridAfterW)] {
             if let v, v.isFinite { out.append((w.text(label), w.format(v < 0 ? "%@ export" : "%@ import", power(v)))) }
@@ -520,9 +587,13 @@ public enum ControlWords {
         "Adjusting": "Ställer om", "No command yet": "Inget kommando än", "No car connected": "Ingen bil ansluten",
         "Waiting for the plan": "Väntar på planen", "Waiting for spare solar": "Väntar på solöverskott", "Starting the charger": "Startar laddaren",
         "Car is full": "Bilen är full", "Car reached its limit": "Bilen nådde sin gräns", "Car not taking power": "Bilen tar inte emot ström",
+        "Car stopped charging": "Bilen slutade ladda",
         "Battery full": "Batteriet är fullt", "Battery nearly full": "Batteriet nästan fullt", "Battery nearly empty": "Batteriet nästan tomt",
-        "Limited by FTW": "Begränsad av FTW", "Limited by the main fuse": "Begränsad av huvudsäkringen", "Waiting after a fuse limit": "Väntar efter en säkringsgräns",
+        "Limited by FTW": "Begränsad av FTW", "Limited by the main fuse": "Begränsad av huvudsäkringen", "Waiting after a site power limit": "Väntar efter en effektgräns",
+        "Limited by the hourly import limit": "Begränsad av timgränsen för import",
         "Limited by FTW’s charger setting": "Begränsad av FTW:s laddarinställning", "Charger limit": "Laddarens gräns", "Charger offers less current": "Laddaren erbjuder mindre ström",
+        "Limited by the charger’s load balancing": "Begränsad av laddarens lastbalansering", "Limited by the charger": "Begränsad av laddaren",
+        "Charging on one phase": "Laddar på en fas",
         "Device fault": "Fel i enheten", "No fresh readings": "Inga färska mätvärden", "Lost control": "Tappade kontrollen",
         "Commands failing": "Kommandon misslyckas", "Command not confirmed": "Kommandot ej bekräftat", "Cannot hand back control": "Kan inte lämna tillbaka styrningen",
         "No power reading": "Ingen effektmätning", "Monitoring only": "Bara övervakning", "Disabled": "Avstängd", "Own control": "Egen styrning",
@@ -537,6 +608,7 @@ public enum ControlWords {
         "Not charging: the car reports that it is full.": "Laddar inte: bilen säger att den är full.",
         "Not charging: the car reached its own charge limit.": "Laddar inte: bilen har nått sin egen laddgräns.",
         "The car is not asking for power right now.": "Bilen ber inte om ström just nu.",
+        "The charger reports that the car finished or paused charging. That does not confirm the car’s level or its charge limit.": "Laddaren rapporterar att bilen slutade eller pausade laddningen. Det bekräftar inte bilens nivå eller dess laddgräns.",
         "Moving to %@. %@ usually responds within %@.": "Går mot %@. %@ svarar oftast inom %@.",
         "FTW has not sent a command since it started.": "FTW har inte skickat något kommando sedan start.",
         "Plug in a car to charge.": "Anslut en bil för att ladda.",
@@ -547,11 +619,19 @@ public enum ControlWords {
         "Taking %@ of %@ at %@. A battery charges slower when it is nearly full.": "Tar %@ av %@ vid %@. Ett batteri laddar långsammare när det är nästan fullt.",
         "Giving %@ of %@ at %@. A battery limits discharge when it is nearly empty.": "Ger %@ av %@ vid %@. Ett batteri begränsar urladdningen när det är nästan tomt.",
         "FTW’s safety limits set the target to %@.": "FTW:s säkerhetsgränser satte målet till %@.",
-        "FTW lowered the rate to %@ to protect the main fuse. It rises when the house uses less.": "FTW sänkte till %@ för att skydda huvudsäkringen. Det ökar när huset använder mindre.",
-        "FTW waits a moment after a fuse limit before it raises the rate.": "FTW väntar en stund efter en säkringsgräns innan det höjer igen.",
+        "FTW lowered the rate to %@ to protect the main fuse.": "FTW sänkte till %@ för att skydda huvudsäkringen.",
+        "FTW lowered the rate to %@ to keep this hour’s grid import within its limit.": "FTW sänkte till %@ för att hålla timmens import från nätet inom gränsen.",
+        "FTW waits a moment after a site power limit before it raises the rate.": "FTW väntar en stund efter en effektgräns innan det höjer igen.",
         "The charger limit in FTW’s settings caps the rate.": "Laddargränsen i FTW:s inställningar begränsar takten.",
         "The charger’s own limit is %@, below the %@ FTW asked for.": "Laddarens egen gräns är %@, under de %@ som FTW bad om.",
         "The charger offers %@, below the %@ FTW asked for.": "Laddaren erbjuder %@, under de %@ som FTW bad om.",
+        "The charger lets the car take %@, below the %@ FTW asked for.": "Laddaren låter bilen ta %@, under de %@ som FTW bad om.",
+        "The charger signals %@ to the car, below the %@ FTW asked for, and the car takes %@. The charger does not say why.": "Laddaren signalerar %@ till bilen, under de %@ som FTW bad om, och bilen tar %@. Laddaren säger inte varför.",
+        "%@ limits the charger to %@ with its load balancing. FTW asked for %@; the car takes %@.": "%@ begränsar laddaren till %@ med sin lastbalansering. FTW bad om %@; bilen tar %@.",
+        "The charger’s load balancing limits it to %@. FTW asked for %@; the car takes %@.": "Laddarens lastbalansering begränsar den till %@. FTW bad om %@; bilen tar %@.",
+        "one phase": "en fas",
+        "The car charges on %@ only, at most %@. FTW plans with what it takes.": "Bilen laddar bara på %@, som mest %@. FTW planerar med det den tar.",
+        "The car charges on %@ only. FTW plans with what it takes.": "Bilen laddar bara på %@. FTW planerar med det den tar.",
         "Asked for %@, delivering %@.": "Bad om %@, levererar %@.",
         "Asked for %@, but it is %@ %@.": "Bad om %@, men den %@ %@.",
         "Asked for %@, but it delivers no power.": "Bad om %@, men den levererar ingen effekt.",
@@ -571,6 +651,10 @@ public enum ControlWords {
         "%@ runs its own mode. FTW is not sending commands.": "%@ kör sitt eget läge. FTW skickar inga kommandon.",
         "FTW stopped control because the grid meter readings are out of date.": "FTW stoppade styrningen eftersom elmätarens värden är för gamla.",
         "FTW stopped control because it lacks fresh phase currents for the main fuse check.": "FTW stoppade styrningen eftersom det saknar färska fasströmmar för säkringskontrollen.",
+        "FTW is set to measure only, so it sends no commands.": "FTW är inställt på att bara mäta, så det skickar inga kommandon.",
+        "The setup changed. FTW sends no commands until the box restarts.": "Inställningarna ändrades. FTW skickar inga kommandon förrän boxen startar om.",
+        "FTW sends no commands until the grid meter confirms it is the one chosen in setup.": "FTW skickar inga kommandon förrän elmätaren bekräftar att den är den som valdes i inställningarna.",
+        "The grid meter is not the one chosen in setup, so FTW sends no commands.": "Elmätaren är inte den som valdes i inställningarna, så FTW skickar inga kommandon.",
         "The box reports “%@”, which this version cannot describe.": "Boxen rapporterar ”%@”, som den här versionen inte kan beskriva.",
 
         // Next steps and proof
@@ -581,6 +665,9 @@ public enum ControlWords {
         "Check the grid meter’s connection.": "Kontrollera elmätarens anslutning.",
         "Raise the limit in the charger’s app if you want faster charging.": "Höj gränsen i laddarens app om du vill ladda snabbare.",
         "Check the charger’s load balancing and limits.": "Kontrollera laddarens lastbalansering och gränser.",
+        "Look for an active limit in the charger’s app.": "Leta efter en aktiv gräns i laddarens app.",
+        "If it happens often, compare the charger’s load balancing with the main fuse set in FTW.": "Händer det ofta, jämför laddarens lastbalansering med huvudsäkringen som är inställd i FTW.",
+        "Check the car’s charge limit and schedule.": "Kontrollera bilens laddgräns och schema.",
         "Turn on control in the device settings if you want FTW to steer it.": "Slå på styrning i enhetens inställningar om du vill att FTW ska styra den.",
         "The grid meter confirmed this at %@.": "Elmätaren bekräftade det här kl. %@.",
         "Based on %@ own readings.": "Bygger på %@ egna mätvärden.",
@@ -611,7 +698,11 @@ public enum ControlWords {
         "Battery charge": "Batteriets laddning",
         "Response tolerance": "Svarstolerans",
         "Requested current": "Begärd ström",
-        "Charger offer": "Laddarens erbjudande",
+        "Actual pilot current": "Faktisk pilotström",
+        "Dynamic current setting": "Dynamisk ströminställning",
+        "Reported current setting": "Rapporterad ströminställning",
+        "Load balancing allows": "Lastbalanseringen tillåter",
+        "Charger lets the car take": "Laddaren låter bilen ta",
         "Grid before": "Nätet före",
         "Grid after": "Nätet efter",
         "%@ export": "%@ export",
@@ -635,5 +726,33 @@ public enum ControlWords {
         "Match tolerance": "Matchningstolerans",
         "Left in the background": "Kvar i bakgrunden",
         "Largest time gap": "Största tidsglapp",
+
+        // What happened: the box's journal
+        "What happened": "Det här hände",
+        "From your box’s record of the last 24 hours.": "Ur boxens logg för det senaste dygnet.",
+        "Nothing needed a look in the last 24 hours.": "Inget behövde ses över det senaste dygnet.",
+        "Only the newest are shown.": "Bara de senaste visas.",
+        "Show %@ more": "Visa %@ till",
+        "Your box didn’t answer. Open this again to ask.": "Boxen svarade inte. Öppna igen för att fråga.",
+        "since %@": "sedan %@",
+        "yesterday %@": "i går %@",
+        "FTW is not in control": "FTW styr inte",
+        "FTW was not in control": "FTW styrde inte",
+        "the meter": "mätaren", "the inverter": "växelriktaren", "the car": "bilen",
+        "inverter": "växelriktare", "car": "bil",
+        "%@ is not reporting.": "%@ rapporterar inte.",
+        "%@ was not reporting.": "%@ rapporterade inte.",
+        "%@ reported a fault: %@.": "%@ rapporterade ett fel: %@.",
+        "%@ reported a fault.": "%@ rapporterade ett fel.",
+        "Battery behind the plan": "Batteriet efter planen",
+        "Battery went the other way": "Batteriet gick åt andra hållet",
+        "Planned %@, delivered %@.": "Planerat %@, levererat %@.",
+        "The plan’s quarter delivered less than planned.": "Kvarten levererade mindre än planerat.",
+        "Asked for %@, delivered %@ on average.": "Bad om %@, levererade i snitt %@.",
+        "Asked to stay idle, delivered %@ on average.": "Ombedd att vila, levererade i snitt %@.",
+        "Asked for %@, produced %@ on average.": "Bad om %@, producerade i snitt %@.",
+        "Notice sent": "Notis skickad",
+        "Notice not sent": "Notisen skickades inte",
+        "Notice not sent: %@": "Notisen skickades inte: %@",
     ]
 }

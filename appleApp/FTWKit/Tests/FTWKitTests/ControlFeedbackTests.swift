@@ -33,7 +33,13 @@ import FTWShared
         "power_below_target", "power_above_target", "power_wrong_direction", "no_power_response", "power_while_idle",
         "setpoint_changed", "device_fault", "telemetry_stale", "readings_lost", "command_failed", "command_unconfirmed",
         "default_failed", "response_unknown", "observe_only", "disabled", "device_control", "site_meter_stale",
-        "site_phase_currents_stale",
+        "site_phase_currents_stale", "import_limit", "load_balancer_limit", "charger_pilot_limit", "one_phase", "vehicle_declined",
+    ]
+
+    /// Why the site may not dispatch: the journal's dispatch line says it.
+    static let dispatchReasons = [
+        "site_meter_stale", "site_phase_currents_stale", "setup_measurement_only", "setup_restart_required",
+        "setup_meter_identity_unconfirmed", "setup_meter_identity_changed",
     ]
 
     @Test func everyReasonHasATitleAndASentence() {
@@ -46,8 +52,81 @@ import FTWShared
                     let shown = [words.title, words.text, words.proof, words.next].joined(separator: " ")
                     #expect(shown.range(of: #"_|undefined|NaN|null|%@"#, options: .regularExpression) == nil, "\(reason): \(shown)")
                 }
+                for reason in Self.dispatchReasons {
+                    let text = ControlFeedback.sentence(ControlRow(driver: "", kind: "dispatch", status: "blocked", reason: reason, severity: "warning"), Self.utc)
+                    #expect(!text.contains("cannot describe") && !text.contains("inte kan beskriva") && !text.contains("_"), "\(reason)")
+                }
             }
         }
+    }
+
+    /// Reasons Core added since: the charger's load balancing and pilot
+    /// (srcfl/ftw#1537, #1905), the hourly import limit, one phase, and a
+    /// car that declined the offer (srcfl/ftw#1980). Each says what the
+    /// box reported and no cause it did not.
+    @Test func newerReasonsSayWhatCoreReported() {
+        AppWords.$language.withValue(.en) {
+            let balanced = ControlFeedback.status(row { $0.kind = "ev"; $0.status = "limited"; $0.reason = "load_balancer_limit"; $0.make = "Easee"
+                $0.limitA = 10; $0.limitedBy = "load_balancer"; $0.requestedA = 16; $0.actualW = 6900 })
+            #expect(balanced.title == "Limited by the charger’s load balancing")
+            #expect(balanced.text == "Easee limits the charger to 10 A with its load balancing. FTW asked for 16 A; the car takes 6.9 kW.")
+            #expect(balanced.next.contains("main fuse"))
+            #expect(balanced.tone == .neutral)
+            let unnamed = ControlFeedback.status(row { $0.kind = "ev"; $0.reason = "load_balancer_limit"; $0.limitA = 10; $0.requestedA = 16; $0.actualW = 6900 })
+            #expect(unnamed.text.hasPrefix("The charger’s load balancing limits it to 10 A."))
+
+            let pilot = ControlFeedback.status(row { $0.kind = "ev"; $0.status = "limited"; $0.reason = "charger_pilot_limit"; $0.pilotA = 10; $0.requestedA = 16; $0.actualW = 6900 })
+            #expect(pilot.title == "Limited by the charger")
+            #expect(pilot.text == "The charger signals 10 A to the car, below the 16 A FTW asked for, and the car takes 6.9 kW. The charger does not say why.")
+
+            let lets = ControlFeedback.status(row { $0.kind = "ev"; $0.status = "limited"; $0.reason = "offered_current_lower"; $0.severity = "warning"
+                $0.limitA = 10; $0.offeredA = 16; $0.requestedA = 16 })
+            #expect(lets.text == "The charger lets the car take 10 A, below the 16 A FTW asked for.")
+            let offers = ControlFeedback.status(row { $0.kind = "ev"; $0.reason = "offered_current_lower"; $0.limitA = 10; $0.offeredA = 8; $0.requestedA = 16 })
+            #expect(offers.text == "The charger offers 8 A, below the 16 A FTW asked for.")
+
+            let hour = ControlFeedback.status(row { $0.kind = "ev"; $0.status = "limited"; $0.reason = "import_limit"; $0.sentW = 3700 })
+            #expect(hour.title == "Limited by the hourly import limit")
+            #expect(hour.text == "FTW lowered the rate to 3.7 kW charge to keep this hour’s grid import within its limit.")
+            #expect(!hour.text.contains("fuse"))
+            let fuse = ControlFeedback.status(row { $0.kind = "ev"; $0.status = "limited"; $0.reason = "fuse_limit"; $0.sentW = 3700 })
+            #expect(fuse.text == "FTW lowered the rate to 3.7 kW charge to protect the main fuse.")
+
+            let phase = ControlFeedback.status(row { $0.kind = "ev"; $0.status = "limited"; $0.reason = "one_phase"; $0.chargingPhase = "L2"; $0.chargingPhaseMaxW = 3680 })
+            #expect(phase.text == "The car charges on L2 only, at most 3.7 kW. FTW plans with what it takes.")
+            #expect(ControlFeedback.status(row { $0.kind = "ev"; $0.reason = "one_phase" }).text == "The car charges on one phase only. FTW plans with what it takes.")
+
+            let declined = ControlFeedback.status(row { $0.kind = "ev"; $0.status = "waiting"; $0.reason = "vehicle_declined"; $0.actualW = 0; $0.requestedW = 10350 })
+            #expect(declined.title == "Car stopped charging")
+            #expect(declined.text.contains("finished or paused"))
+            #expect(!declined.text.contains("is full") && !declined.text.contains("reached its own"))
+            #expect(declined.next == "Check the car’s charge limit and schedule.")
+            #expect(declined.tone == .neutral)
+            // Core's own stop for a car that stopped asking keeps its words.
+            let stopped = ControlFeedback.status(row { $0.kind = "ev"; $0.reason = "vehicle_not_requesting"; $0.actualW = 0; $0.sentW = 0 })
+            #expect(stopped.title == "Car not taking power")
+            #expect(stopped.next == "")
+
+            let numbers = Dictionary(uniqueKeysWithValues: ControlFeedback.numbers(row { $0.kind = "ev"; $0.pilotA = 10; $0.dynamicLimitA = 16; $0.offeredA = 16
+                $0.limitA = 10; $0.limitedBy = "load_balancer" }))
+            #expect(numbers["Actual pilot current"] == "10 A")
+            #expect(numbers["Dynamic current setting"] == "16 A")
+            #expect(numbers["Reported current setting"] == nil)
+            #expect(numbers["Load balancing allows"] == "10 A")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(ControlFeedback.status(row { $0.kind = "ev"; $0.reason = "vehicle_declined" }).title == "Bilen slutade ladda")
+            #expect(ControlFeedback.status(row { $0.kind = "ev"; $0.reason = "one_phase" }).text == "Bilen laddar bara på en fas. FTW planerar med det den tar.")
+        }
+    }
+
+    /// The box's row carries the charger's newer fields.
+    @Test func readsTheChargersNewerFields() throws {
+        let json = try JSON(parsing: Array(#"{"driver": "easee", "kind": "ev", "status": "limited", "reason": "load_balancer_limit", "pilot_a": 10, "dynamic_limit_a": 16, "limit_a": 10, "limited_by": "load_balancer", "make": "Easee", "charging_phase": "L1", "charging_phase_max_w": 3680}"#.utf8))
+        let r = try #require(ControlRow(json))
+        #expect(r.pilotA == 10 && r.dynamicLimitA == 16 && r.limitA == 10)
+        #expect(r.limitedBy == "load_balancer" && r.make == "Easee")
+        #expect(r.chargingPhase == "L1" && r.chargingPhaseMaxW == 3680)
     }
 
     @Test func theAnswerFollowsCore() {
@@ -163,6 +242,8 @@ import FTWShared
     /// the source, so a new sentence without Swedish fails here.
     @Test func everyWordHasSwedish() throws {
         let source = try RepoFiles.read("appleApp/FTWKit/Sources/FTWKit/Format/ControlFeedback.swift")
+            + RepoFiles.read("appleApp/FTWKit/Sources/FTWKit/Format/ControlJournal.swift")
+            + RepoFiles.read("appleApp/FTWKit/Sources/FTWKit/State/ControlJournalModel.swift")
             + RepoFiles.read("appleApp/FTW/UI/ControlSheet.swift")
         let call = #/(?:ControlWords|\bw)\.(?:text|format)\("((?:[^"\\]|\\.)*)"/#
         var english = Set(source.matches(of: call).map { String($0.1) })
@@ -174,7 +255,11 @@ import FTWShared
                            "%@ device needs attention now", "%@ devices need attention now", "%@ device needs a look", "%@ devices need a look",
                            "producing", "idle", "charging", "discharging", "two minutes", "15 seconds", "no charging", "%@ export",
                            "%@ more solar", "%@ less charging", "%@ toward discharge", "%@ toward export", "%@ less drawn", "%@ charge",
-                           "car charger", "meter", "battery", "solar", "charger", "device"])
+                           "car charger", "meter", "battery", "solar", "charger", "device",
+                           "Load balancing allows", "Charger lets the car take",
+                           // The journal's lines.
+                           "FTW is not in control", "FTW was not in control", "%@ is not reporting.", "%@ was not reporting.",
+                           "Battery behind the plan", "Battery went the other way", "inverter", "car"])
         #expect(english.count > 120)
         for en in english.sorted() where !en.isEmpty {
             #expect(ControlWords.sv[en] != nil || NodeWords.sv[en] != nil || AppWords.sv[en] != nil, "no Swedish for \"\(en)\"")

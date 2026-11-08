@@ -5,7 +5,9 @@ import SwiftUI
 /// control?", as plain list rows, with the same words as the box's page.
 /// First the home as a whole and how its readings reach this phone, then one
 /// section per device function: what it does, how FTW knows, and the
-/// numbers behind it. When the box is out of reach, it opens on what to do.
+/// numbers behind it. Under what needs a look now, what happened: the
+/// box's own record of the last day's warnings, kept after they passed.
+/// When the box is out of reach, it opens on what to do.
 struct ControlSheet: View {
     let app: AppModel
     let home: HomeModels
@@ -13,6 +15,7 @@ struct ControlSheet: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     private var check: ControlCheck { home.control }
+    private var journal: ControlJournal { home.journal }
     private var site: SiteModel { home.site }
     private func needsLook(_ row: ControlRow) -> Bool { row.severity == "warning" || row.severity == "alarm" }
     private var zone: TimeZone { site.session.box.flatMap { TimeZone(identifier: $0.tz) } ?? .current }
@@ -25,6 +28,10 @@ struct ControlSheet: View {
                 // the legend, so the sheet opens on why.
                 ForEach(check.rows.filter(needsLook)) { row in
                     DeviceSection(row: row, live: check.live, zone: zone)
+                }
+                // A warning that has passed stays here, as the box kept it.
+                if journal.shown {
+                    HappenedSection(journal: journal)
                 }
                 legend
                 if let help = app.connectHelp {
@@ -54,12 +61,17 @@ struct ControlSheet: View {
                 }
             }
             .animation(Theme.spring, value: check.rows)
+            .animation(Theme.spring, value: journal.answer)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         // Asked when the sheet opens, and again when the stream says
-        // something that changes the answer. Never on a timer.
-        .task(id: check.key) { await check.read() }
+        // something that changes the answer. Never on a timer. The journal
+        // is read after the answer, so the answer comes first.
+        .task(id: check.key) {
+            await check.read()
+            await journal.read()
+        }
     }
 
     /// What light, grey and pale mean, said once near the top, with the
@@ -203,6 +215,82 @@ private struct DeviceSection: View {
     }
 }
 
+/// What happened: the journal's warnings and alarms of the last day and
+/// the notices the box sent, newest first, in the live rows' words. The
+/// newest few show; the rest are a tap away.
+private struct HappenedSection: View {
+    let journal: ControlJournal
+    @State private var all = false
+
+    static let first = 6
+
+    var body: some View {
+        let entries = journal.entries()
+        Section {
+            if journal.answer == nil {
+                if journal.canRead, journal.problem == nil {
+                    // The shape of the list while the box answers.
+                    ForEach(0..<2, id: \.self) { _ in
+                        HappenedRow(entry: Self.placeholder).redacted(reason: .placeholder)
+                    }
+                } else if let problem = journal.problem {
+                    Text(problem).foregroundStyle(Theme.ink2)
+                }
+            } else if entries.isEmpty {
+                Text(ControlWords.text("Nothing needed a look in the last 24 hours.")).foregroundStyle(Theme.ink2)
+            } else {
+                ForEach(all ? entries : Array(entries.prefix(Self.first))) { entry in
+                    HappenedRow(entry: entry)
+                }
+                if !all, entries.count > Self.first {
+                    Button(ControlWords.format("Show %@ more", String(entries.count - Self.first))) { all = true }
+                        .accessibilityIdentifier("control.journal.more")
+                }
+            }
+        } header: {
+            Text(ControlWords.text("What happened"))
+        } footer: {
+            if journal.answer != nil {
+                let more = journal.answer?.more == true || journal.answer?.noticesMore == true
+                Text(ControlWords.text("From your box’s record of the last 24 hours.") + (more ? " " + ControlWords.text("Only the newest are shown.") : ""))
+            }
+        }
+        .listRowBackground(Theme.raised)
+        .accessibilityIdentifier("control.journal")
+    }
+
+    static let placeholder = JournalEntry(id: "placeholder", mark: .tone(.neutral), title: "Not following", name: nil,
+                                          text: "Asked for 4.2 kW charge, delivered 1.2 kW on average.", when: "06:14–06:29", atMs: 0)
+}
+
+/// One line of what happened: when and what, as a mono kicker, then the
+/// title and the sentence.
+private struct HappenedRow: View {
+    let entry: JournalEntry
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: ([entry.when] + (entry.name.map { [$0] } ?? [])).joined(separator: " · "))
+                    .font(Theme.mono(.caption))
+                    .foregroundStyle(Theme.ink2)
+                Text(entry.title).font(.body.weight(.semibold)).foregroundStyle(Theme.ink)
+                if !entry.text.isEmpty {
+                    Text(entry.text).font(.subheadline).foregroundStyle(Theme.ink)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            switch entry.mark {
+            case .tone(let tone): ToneMark(tone: tone, past: !entry.ongoing)
+            case .noticeSent: Image(systemName: "bell").foregroundStyle(Theme.ink3).accessibilityHidden(true)
+            case .noticeFailed: Image(systemName: "bell.slash").foregroundStyle(Theme.alarm).accessibilityHidden(true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// One step of how FTW knows: sent, accepted, measured, confirmed.
 private struct StepRow: View {
     let step: ControlFeedback.Step
@@ -244,9 +332,11 @@ private struct StepRow: View {
 }
 
 /// The box's marks for a verdict, as symbols: a tick when following, a
-/// triangle for a warning, a stop for an alarm.
+/// triangle for a warning, a stop for an alarm. What has passed keeps its
+/// mark in ink.
 private struct ToneMark: View {
     let tone: ControlFeedback.Tone
+    var past = false
 
     var body: some View {
         Image(systemName: symbol)
@@ -265,6 +355,7 @@ private struct ToneMark: View {
     }
 
     private var color: Color {
+        if past { return Theme.ink2 }
         switch tone {
         case .ok: return Theme.live
         case .warning, .alarm: return Theme.alarm

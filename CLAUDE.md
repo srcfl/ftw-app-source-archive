@@ -120,7 +120,13 @@ native, and smooth enough to impress.
   once more after Core's own wait for a device to respond. Core's
   warnings and alarms take the status line in any mode (xorath, 5 Nov
   2026: the battery charged while FTW asked it to discharge, the box's
-  page said so, and the app said it was in control).
+  page said so, and the app said it was in control). A warning stays
+  after it passes (Fredrik, 8 Nov 2026): the control sheet reads Core's
+  control journal (GET /api/control/journal) when it opens and when the
+  stream's facts change, and lists the last day's warnings, alarms and
+  notices under what needs a look now, in the live rows' words. Only what
+  still holds takes the alarm colour. A box that answers 404 shows
+  nothing new.
 - **Ask by the data's age.** `LiveAsk` names what it wants by how old the
   data is (the five minutes, the quarter, the day) and keeps an answer
   while that name holds. A view appearing or a redial asks only when the
