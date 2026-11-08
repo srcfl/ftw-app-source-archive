@@ -1,3 +1,5 @@
+Nytt i 0.6.12: när batteriet inte gör som planen sa säger appen det. Nu och planen visar vad batteriet gör, vad planen sa och varför, till exempel mindre sol än prognosen. Kontrollbladet säger enligt planen bara när det stämmer. Det kräver boxens nästa uppdatering.
+
 Nytt i 0.6.11: när FTW inte fick som den bad finns det kvar. Öppna Har vi kontroll? så visar Vad hände det senaste dygnet ur boxens egen logg: vad FTW bad om, vad enheten levererade, när styrningen stod still och vilken enhet som tystnade. Det kräver boxens nästa uppdatering. I bilvyn säger två rader under ringen vad bilen gör nu och när den är klar.
 
 Nytt i 0.6.10: Ladda nu fungerar även när boxen tappat kontakten med laddaren och väntar på ditt val. Tryck på bilen på Nu, så hamnar du hos bilen, med Ladda nu längst ned. På planens klocka tonar slutet av de tolv timmarna ut mot visaren, så morgondagens sol inte längre ser ut som sol som nyss gått ned, och kanten säger I MORGON bredvid den.
