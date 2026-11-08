@@ -180,7 +180,7 @@ private struct PlanSlot: View {
         ZStack(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 18) {
                 if hasCar { NowCarRow(home: home, zoom: zoom) }
-                PlanSection(site: site, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, zoom: zoom)
+                PlanSection(site: site, models: home.nodes, control: home.control, prices: home.prices, loadpoints: home.loadpoints, zoom: zoom)
             }
                 .opacity(nothingYet ? 0 : 1)
                 .allowsHitTesting(!nothingYet)
@@ -423,6 +423,7 @@ private struct NodeList: View {
 private struct PlanSection: View {
     let site: SiteModel
     let models: NodeModels
+    let control: ControlCheck
     let prices: PriceModel
     let loadpoints: LoadpointsModel
     let zoom: Namespace.ID
@@ -442,16 +443,20 @@ private struct PlanSection: View {
         let shown = models.planShare.shown(nowMs: minute)
         let hasCar = !loadpoints.points.isEmpty
         let strip = PlanStrip.build(shown.entry, moment: shown.moment, hasCar: hasCar, prices: window?.slots)
+        // The strip stays the plan. Its line says what happens now when
+        // that is not the plan.
+        let offPlan = shown.moment.state == .plan ? control.planWords : nil
         PlanStripView(
             strip: strip,
-            sentence: shown.moment.nextText,
-            shorter: shown.moment.nextShorter,
+            sentence: offPlan?.sentence ?? shown.moment.nextText,
+            shorter: offPlan?.shorter ?? shown.moment.nextShorter,
             placeholder: shown.moment.placeholder,
             priceNow: current.map { PriceStrip.whole($0.totalMinor, window?.currency) },
             unit: PriceUnits.unit(window?.currency).label.uppercased(),
             fade: StripFade.make(models.planShare.before, strip: strip, nowMs: minute, hasCar: hasCar),
             zoom: zoom,
             chosenID: $chosenID,
+            sentenceFirst: offPlan != nil,
             priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) },
             site: site
         )
