@@ -24,6 +24,8 @@ public final class HomeModels {
     /// The box's answer to "Are we in control?", for the status line and
     /// the control sheet.
     public let control: ControlCheck
+    /// What happened: the box's control journal, for the control sheet.
+    public let journal: ControlJournal
     /// Which notifications the box sends, for Home's switches.
     public let notify: NotifyRules
 
@@ -40,6 +42,7 @@ public final class HomeModels {
         nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices, cache: cache)
         gridToday = GridTodayShare(site: site, history: nodes.history, prices: prices)
         control = ControlCheck(site: site)
+        journal = ControlJournal(site: site)
         notify = NotifyRules(site: site)
         // The nodes Now drew, so the next launch draws them in their places
         // before its first reading.
