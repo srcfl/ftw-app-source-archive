@@ -53,6 +53,9 @@ struct PlanStripView: View, Equatable {
     @Binding var chosenID: String?
     /// On Now the strip opens the plan; in the plan it is the plan.
     var opensPlan = true
+    /// The sentence stands in for the opening pass's figures: they would
+    /// say "Charges" over a battery that does something else.
+    var sentenceFirst = false
     /// The battery level's row: none on Now, room for it in the lanes.
     var levelHeight: CGFloat = 0
     /// The least the price row takes: Now gives it what room it has; the
@@ -80,7 +83,7 @@ struct PlanStripView: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.strip == b.strip && a.sentence == b.sentence && a.shorter == b.shorter && a.placeholder == b.placeholder
             && a.priceNow == b.priceNow && a.unit == b.unit && a.fade == b.fade && a.zoom == b.zoom
-            && a.chosenID == b.chosenID && a.opensPlan == b.opensPlan && a.levelHeight == b.levelHeight && a.leastPrice == b.leastPrice
+            && a.chosenID == b.chosenID && a.opensPlan == b.opensPlan && a.sentenceFirst == b.sentenceFirst && a.levelHeight == b.levelHeight && a.leastPrice == b.leastPrice
             && a.priceLabel == b.priceLabel && a.touch === b.touch && a.site === b.site
     }
 
@@ -151,7 +154,7 @@ struct PlanStripView: View, Equatable {
             // Where the drawing is on the screen, for the page's touches:
             // written to a plain reference, so a scroll redraws nothing.
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
-            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: chosen, readouts: strip.readouts, model: scrub, site: site)
+            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: sentenceFirst ? strip.passes.first { $0.id == chosenID } : chosen, readouts: strip.readouts, model: scrub, site: site)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())

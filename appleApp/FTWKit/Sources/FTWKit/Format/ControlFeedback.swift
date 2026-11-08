@@ -56,6 +56,9 @@ public struct ControlRow: Equatable, Sendable, Identifiable {
     public var confirmedAtMs: Double?
     public var siteConfirmation: String?
     public var siteEvidence: Comparison?
+    /// Whether a battery does what the plan meant for this quarter; nil on
+    /// a box that does not compare.
+    public var onPlan: Bool?
 
     public var id: String { "\(driver):\(kind)" }
 
@@ -98,6 +101,7 @@ public struct ControlRow: Equatable, Sendable, Identifiable {
         observedAtMs = j["observed_at_ms"]?.number.flatMap { $0 > 0 ? $0 : nil }
         confirmedAtMs = j["confirmed_at_ms"]?.number.flatMap { $0 > 0 ? $0 : nil }
         siteConfirmation = j["site_confirmation"]?.string
+        onPlan = j["on_plan"]?.bool
         if let e = j["site_evidence"], e.object != nil {
             siteEvidence = Comparison(
                 deviceChangeW: e["device_change_w"]?.number, gridChangeW: e["grid_change_w"]?.number,
@@ -232,6 +236,8 @@ public enum ControlFeedback {
     static func source(_ row: ControlRow) -> String {
         if row.mode == "manual" { return ControlWords.text("as you asked") }
         if row.mode == "solar" { return ControlWords.text("from spare solar") }
+        // A battery's row says "as planned" only when Core says it is.
+        if row.kind == "battery" { return ControlWords.text(row.onPlan == true ? "as planned" : "as FTW asked") }
         if row.mode == "plan" || row.mode.hasPrefix("planner") { return ControlWords.text("as planned") }
         return ControlWords.text("as FTW asked")
     }
@@ -577,6 +583,26 @@ public enum ControlWords {
         "as you asked": "som du bad om",
         "from spare solar": "från solöverskott",
         "as planned": "enligt planen",
+        "Plan and now": "Planen och nu",
+        "The plan: %@": "Planen: %@",
+        "charging %@": "laddar %@",
+        "discharging %@": "laddar ur %@",
+        "Now: %@": "Nu: %@",
+        "The plan said: charge %@": "Planen sa: ladda %@",
+        "The plan said: discharge %@": "Planen sa: ladda ur %@",
+        "The plan said: rest": "Planen sa: vila",
+        "%@, not as planned.": "%@, inte enligt planen.",
+        "The sun gives %@; the forecast said %@.": "Solen ger %@, prognosen sa %@.",
+        "The home uses %@; the forecast said %@.": "Huset drar %@, prognosen sa %@.",
+        "The car takes %@; the plan said %@.": "Bilen tar %@, planen sa %@.",
+        "You are holding the battery by hand.": "Du styr batteriet för hand.",
+        "The battery cannot follow the plan right now.": "Batteriet kan inte följa planen just nu.",
+        "FTW follows what the home and the sun do now, not the forecast.": "FTW följer det som händer nu, inte prognosen.",
+        "The battery covers the home, so you buy less.": "Batteriet täcker huset, så du köper mindre.",
+        "The battery gives only what the home needs.": "Batteriet ger bara det huset behöver.",
+        "The battery charges with what is left over.": "Batteriet laddar med det som blir över.",
+        "Nothing is left over to charge with.": "Inget blir över att ladda med.",
+        "The battery rests.": "Batteriet vilar.",
         "as FTW asked": "som FTW bad om",
         "manual": "manuellt", "solar only": "bara sol", "plan": "plan",
         "two minutes": "två minuter", "15 seconds": "15 sekunder",

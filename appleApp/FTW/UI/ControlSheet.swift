@@ -29,6 +29,14 @@ struct ControlSheet: View {
                 ForEach(check.rows.filter(needsLook)) { row in
                     DeviceSection(row: row, live: check.live, zone: zone)
                 }
+                if let words = check.planWords {
+                    Section {
+                        PlanNowBlock(words: words)
+                    } header: {
+                        Text(ControlWords.text("Plan and now"))
+                    }
+                    .listRowBackground(Theme.raised)
+                }
                 // A warning that has passed stays here, as the box kept it.
                 if journal.shown {
                     HappenedSection(journal: journal)
@@ -385,5 +393,26 @@ struct RetryButton: View {
         }
         .disabled(trying)
         .accessibilityIdentifier("now.connect.retry")
+    }
+}
+
+/// What the batteries do now beside what the plan said, and why. Not a
+/// fault: FTW is in control, and the plan met a different day.
+struct PlanNowBlock: View {
+    let words: PlanNow.Words
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(words.nowLine).font(.headline).foregroundStyle(Theme.ink)
+            Text(words.plan).font(.subheadline).foregroundStyle(Theme.ink2)
+            Text(words.why).font(.subheadline).foregroundStyle(Theme.ink).padding(.top, 2)
+            if !words.then.isEmpty {
+                Text(words.then).font(.subheadline).foregroundStyle(Theme.ink)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("plan.now")
     }
 }

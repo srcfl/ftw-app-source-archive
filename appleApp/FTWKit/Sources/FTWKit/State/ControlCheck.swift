@@ -18,6 +18,8 @@ import Observation
 @MainActor
 public final class ControlCheck {
     public private(set) var rows: [ControlRow] = []
+    /// Whether the batteries do what the plan meant, from the same answer.
+    public private(set) var planNow: PlanNow?
     /// When the box last answered, by the phone clock.
     public private(set) var readAtMs: Double?
     /// The last read failed, with a sentence to show.
@@ -94,6 +96,8 @@ public final class ControlCheck {
         token = nil
         followUp?.cancel()
         lookingSinceMs = nil
+        // Nobody will ask again, so what it said about the plan goes stale.
+        planNow = nil
     }
 
     /// What the answer is named by: it stands while the stream's facts,
@@ -131,6 +135,22 @@ public final class ControlCheck {
             .max()
     }
 
+    /// When to ask again about the plan: as a change under way settles, and
+    /// each minute while the batteries are off it, so the numbers on screen
+    /// stay true. The box's clock may differ, so the wait is bounded.
+    nonisolated static func planFollowUpMs(_ plan: PlanNow?, nowMs: Double) -> Double? {
+        guard let plan else { return nil }
+        if let at = plan.settlesAtMs { return min(planRereadMs + 5_000, max(5_000, at - nowMs + 1_000)) }
+        return plan.isOffPlan ? planRereadMs : nil
+    }
+    nonisolated static let planRereadMs: Double = 60_000
+
+    /// What to say about the plan now; nil unless the answer is current and
+    /// the batteries are off it.
+    public var planWords: PlanNow.Words? {
+        live ? planNow?.words : nil
+    }
+
     /// Asked by the control sheet as it opens.
     public func read() async {
         try? await fetch()
@@ -145,11 +165,13 @@ public final class ControlCheck {
             let status = try await site.callBox(.get, "/api/status")
             guard mine == generation else { return }
             rows = ControlRow.rows(status)
+            planNow = PlanNow(status: status)
             readAtMs = site.scheduler.nowMs
             problem = nil
             wattsAtRead = fields
             followUp?.cancel()
-            if let wait = Self.followUpMs(rows), looking > 0 {
+            let waits = [Self.followUpMs(rows), Self.planFollowUpMs(planNow, nowMs: site.scheduler.nowMs)].compactMap { $0 }
+            if let wait = waits.min(), looking > 0 {
                 followUp = site.scheduler.after(wait) { [weak self] in
                     guard let self else { return }
                     self.epoch += 1
@@ -159,10 +181,12 @@ public final class ControlCheck {
         } catch let e as BoxAPIError {
             guard mine == generation else { return }
             problem = e.help
+            planNow = nil
             throw e
         } catch {
             guard mine == generation else { return }
             problem = AppWords.text("Your box didn't answer. Still trying.")
+            planNow = nil
             throw error
         }
     }

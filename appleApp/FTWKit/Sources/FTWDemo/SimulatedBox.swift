@@ -89,6 +89,8 @@ public final class SimulatedBox {
     /// A battery that does the opposite of what FTW asked, as Core then
     /// reports it: asked for 812 W one way while it runs the other.
     public var batteryNotFollowing = false
+    /// The battery covers the home while the plan means to charge it.
+    public var offPlan = false
     /// A Core with the control journal (GET /api/control/journal). Off, it
     /// is a box from before it, which answers 404.
     public var keepsJournal = true
@@ -616,6 +618,7 @@ public final class SimulatedBox {
             "actual_w": .number((bat * 0.995).rounded()), "battery_soc": .number(house.socFraction), "tolerance_w": 150,
             "command_at_ms": .number(now - 4_000), "observed_at_ms": .number(now - 1_000),
             "site_confirmation": moved ? "confirmed" : "no_clear_change",
+            "on_plan": .bool(!offPlan),
         ]
         if batteryNotFollowing {
             let asked: Double = bat >= 0 ? -812 : 812
@@ -743,6 +746,11 @@ public final class SimulatedBox {
                 "phase_amps": .array((0..<3).map { .number(((perPhase + Double($0) * 90) / 230 * 10).rounded() / 10) }),
                 "phase_powers": .array((0..<3).map { .number((perPhase + Double($0) * 90).rounded()) }),
                 "control_feedback": .array(controlFeedback(now)),
+                "plan_now": offPlan ? [
+                    "status": "off_plan", "why": "less_solar", "since_ms": .number(now - 240_000),
+                    "battery_w": -1231, "planned_battery_w": 2595, "pv_w": -1392, "planned_pv_w": -3814,
+                    "load_w": 1230, "planned_load_w": 1219, "ev_w": 0, "planned_ev_w": 0,
+                ] : .null,
             ])
         case ("GET", "/api/control/journal"):
             return keepsJournal ? (200, journalJSON(nowMs: now, query: query)) : (404, [:])
@@ -1052,6 +1060,7 @@ extension SimulatedBox {
         // `-FTWDemoNotFollowing YES`: the battery does the opposite of
         // what FTW asked, as xorath's did on 5 Nov 2026.
         if UserDefaults.standard.bool(forKey: "FTWDemoNotFollowing") { box.batteryNotFollowing = true }
+        if UserDefaults.standard.bool(forKey: "FTWDemoOffPlan") { box.offPlan = true }
         // `-FTWDemoChargerUnconfirmed YES`: the box lost sight of the charger
         // during Charge now and waits for a choice.
         if UserDefaults.standard.bool(forKey: "FTWDemoChargerUnconfirmed") {

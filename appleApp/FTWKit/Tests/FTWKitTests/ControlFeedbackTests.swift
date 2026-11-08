@@ -131,7 +131,7 @@ import FTWShared
 
     @Test func theAnswerFollowsCore() {
         AppWords.$language.withValue(.en) {
-            let following = ControlFeedback.status(row(), zone: Self.utc)
+            let following = ControlFeedback.status(row { $0.onPlan = true }, zone: Self.utc)
             #expect(following.title == "Following FTW")
             #expect(following.text == "Discharging 2.2 kW as planned.")
             #expect(following.proof == "Based on the battery’s own readings.")
@@ -229,7 +229,7 @@ import FTWShared
 
     @Test func inSwedish() {
         AppWords.$language.withValue(.sv) {
-            let following = ControlFeedback.status(row())
+            let following = ControlFeedback.status(row { $0.onPlan = true })
             #expect(following.title == "Följer FTW")
             #expect(following.text == "Laddar ur 2,2 kW enligt planen.")
             #expect(following.proof == "Bygger på batteriets egna mätvärden.")
