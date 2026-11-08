@@ -94,6 +94,8 @@ import FTWShared
         #expect(ControlCheck.planFollowUpMs(p, nowMs: 0) == ControlCheck.planRereadMs)
         p.settlesAtMs = 20_000
         #expect(ControlCheck.planFollowUpMs(p, nowMs: 0) == 21_000)
+        p.settlesAtMs = -60_000 // already past by this phone's clock
+        #expect(ControlCheck.planFollowUpMs(p, nowMs: 0) == 5_000)
         p.settlesAtMs = 9_000_000
         #expect(ControlCheck.planFollowUpMs(p, nowMs: 0) == ControlCheck.planRereadMs + 5_000)
         p.status = "as_planned"

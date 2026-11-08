@@ -584,6 +584,7 @@ public enum ControlWords {
         "from spare solar": "från solöverskott",
         "as planned": "enligt planen",
         "Plan and now": "Planen och nu",
+        "The plan: %@": "Planen: %@",
         "charging %@": "laddar %@",
         "discharging %@": "laddar ur %@",
         "Now: %@": "Nu: %@",

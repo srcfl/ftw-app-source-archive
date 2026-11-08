@@ -146,6 +146,9 @@ private struct PlanBody: View {
         let dial = style == .dial ? dials.dial(entry, nowMs: minute, untilMs: reach) : nil
         let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count, prices: window?.slots)
         let chosen = strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes)
+        // Under the block below, the strip's line says it is the plan
+        // rather than show "Charges" as a figure.
+        let offPlan = moment.state == .plan && control.planWords != nil
         Group {
             switch style {
             case .dial:
@@ -181,14 +184,15 @@ private struct PlanBody: View {
         VStack(alignment: .leading, spacing: 10) {
             PlanStripView(
                 strip: strip,
-                sentence: moment.nextText,
-                shorter: moment.nextShorter,
+                sentence: offPlan ? ControlWords.format("The plan: %@", moment.nextText) : moment.nextText,
+                shorter: offPlan ? moment.nextShorter.map { ControlWords.format("The plan: %@", $0) } : moment.nextShorter,
                 placeholder: moment.placeholder,
                 priceNow: priceNow(window, minute),
                 unit: PriceUnits.unit(prices.prices?.currency).label.uppercased(),
                 zoom: zoom,
                 chosenID: $chosenID,
                 opensPlan: false,
+                sentenceFirst: offPlan,
                 levelHeight: style == .lanes ? 50 : 0,
                 leastPrice: 56,
                 priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) },

@@ -96,6 +96,8 @@ public final class ControlCheck {
         token = nil
         followUp?.cancel()
         lookingSinceMs = nil
+        // Nobody will ask again, so what it said about the plan goes stale.
+        planNow = nil
     }
 
     /// What the answer is named by: it stands while the stream's facts,
@@ -138,7 +140,7 @@ public final class ControlCheck {
     /// stay true. The box's clock may differ, so the wait is bounded.
     nonisolated static func planFollowUpMs(_ plan: PlanNow?, nowMs: Double) -> Double? {
         guard let plan else { return nil }
-        if let at = plan.settlesAtMs { return min(planRereadMs + 5_000, max(2_000, at - nowMs + 1_000)) }
+        if let at = plan.settlesAtMs { return min(planRereadMs + 5_000, max(5_000, at - nowMs + 1_000)) }
         return plan.isOffPlan ? planRereadMs : nil
     }
     nonisolated static let planRereadMs: Double = 60_000
@@ -179,10 +181,12 @@ public final class ControlCheck {
         } catch let e as BoxAPIError {
             guard mine == generation else { return }
             problem = e.help
+            planNow = nil
             throw e
         } catch {
             guard mine == generation else { return }
             problem = AppWords.text("Your box didn't answer. Still trying.")
+            planNow = nil
             throw error
         }
     }
