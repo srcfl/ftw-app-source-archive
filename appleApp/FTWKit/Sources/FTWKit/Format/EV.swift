@@ -596,8 +596,11 @@ public enum AppWords {
         "PARTIAL": "DELVIS",
         "TODAY": "I DAG",
         "NO PRICES": "INGA PRISER",
-        "%@ today": "%@ i dag",
-        "cost %@ more today": "kostade %@ mer i dag",
+        "%@ yesterday": "%@ i går",
+        "cost %@ more yesterday": "kostade %@ mer i går",
+        "yesterday": "i går",
+        "Today": "I dag",
+        "Your box counts the day's saving once the day is over.": "Boxen räknar dagens besparing när dagen är slut.",
         "Savings by day": "Besparing per dag",
         "%@ DAYS": "%@ DAGAR",
     ]

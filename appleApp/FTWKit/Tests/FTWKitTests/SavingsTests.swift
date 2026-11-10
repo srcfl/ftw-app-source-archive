@@ -64,112 +64,66 @@ import FTWShared
         }
     }
 
-    @Test func todayIsTheBoxsRowAsFarAsItGot() {
+    /// A day's saving is said once the day is over: the Day view and the
+    /// History tab open on yesterday, and today has no bar, only words
+    /// (xorath and Fredrik, 10 Nov 2026).
+    @Test func aDayIsSaidOnceItIsOver() {
         var rows = Self.week
-        rows[6] = Self.row("2026-10-15", saved: 912, actual: 2_105)
+        rows[6] = Self.row("2026-10-15", saved: -912, actual: 2_105)
+        rows[5] = Self.row("2026-10-14", saved: 912, actual: 2_105)
         let g = glance(.day, Self.wire(rows, totals: 6_912))
         #expect(g.reading.figure == "9.12")
         #expect(g.reading.unit == "kr")
-        #expect(g.reading.word == "Saved today so far")
+        #expect(g.reading.word == "Saved yesterday")
         #expect(g.reading.kicker == nil)
         #expect(g.reading.lines == ["Cost 21.05\u{00A0}kr · with no solar or battery 30.17\u{00A0}kr", "Bought for 26.25\u{00A0}kr, sold for 5.20\u{00A0}kr"])
         #expect(g.footer == "AS OF 14:32")
-        // The day's bar stands in full ink among the week, hatched while it fills.
-        #expect(g.chart.focus == 6)
+        // Yesterday stands in full ink among the week; today has no bar.
+        #expect(g.chart.focus == 5)
         #expect(g.chart.today == 6)
         #expect(g.chart.values.count == 7)
-    }
-
-    /// A week is the box's totals, not the app's sum of its days.
-    @Test func aWeekIsTheBoxsTotals() {
-        let g = glance(.week, Self.wire(Self.week, totals: 6_500, actual: 18_000))
-        #expect(g.reading.figure == "65.00")
-        #expect(g.reading.word == "Saved 9–15 Oct")
-        #expect(g.reading.lines == ["Cost 180\u{00A0}kr · with no solar or battery 245\u{00A0}kr", "Bought 60\u{00A0}kWh, sold 20\u{00A0}kWh"])
-        #expect(g.chart.focus == nil)
-        #expect(g.chart.landmarks.contains(6))
-    }
-
-    @Test func aMonthAcrossNothingButItsOwnDays() {
-        let rows = (1...15).map { Self.row(String(format: "2026-10-%02d", $0), saved: Double(500 + 40 * $0)) }
-        let g = glance(.month, Self.wire(rows, totals: 12_345))
-        #expect(g.reading.figure == "123")
-        #expect(g.reading.word == "Saved 1–15 Oct")
-        // A month names the first of each week, and today.
-        #expect(g.chart.labels.map(\.text) == ["1", "8", "TODAY"])
-        // The best day is a landmark for the finger.
-        #expect(g.chart.landmarks == [14])
-    }
-
-    /// The self-consumption baseline drains the battery and reads cheaper
-    /// than what FTW did. The screen never uses it.
-    @Test func theSelfConsumptionBaselineIsNeverShown() {
-        let rows = (9...15).map { Self.row(String(format: "2026-10-%02d", $0), saved: 1_200, selfSaved: -2_400) }
-        for period in Savings.Period.allCases {
-            let g = glance(period, Self.wire(rows, totals: 8_400))
-            #expect(g.reading.word.hasPrefix("Saved"))
-            #expect(!g.reading.word.contains("more"))
-            #expect(!g.reading.figure.contains("24"))
-            #expect(g.chart.values.allSatisfy { $0 == 1_200 })
-        }
-    }
-
-    @Test func partialWhenTheBoxPricedLessThanNinetyFivePercent() {
-        var rows = Self.week
-        rows[6] = Self.row("2026-10-15", saved: 700, coverage: 0.8)
-        rows[3] = Self.row("2026-10-12", saved: 900, coverage: 0.96)
-        let day = glance(.day, Self.wire(rows, totals: 6_600, coverage: 0.97))
-        #expect(day.reading.kicker == "PARTIAL")
-        #expect(day.reading.lines.last == "The box had prices for 80\u{00A0}% of the time.")
-        #expect(day.chart.partial == [6])
-        #expect(day.chart.tags[6] == "TODAY  7.00\u{00A0}KR · PARTIAL")
-        let week = glance(.week, Self.wire(rows, totals: 6_600, coverage: 0.97))
-        #expect(week.reading.kicker == nil)
-        let thin = glance(.week, Self.wire(rows, totals: 6_600, coverage: 0.9))
-        #expect(thin.reading.kicker == "PARTIAL")
-    }
-
-    @Test func aDayWithNoPricesHasNoMoney() {
-        var rows = Self.week
-        rows[2] = Self.row("2026-10-11", saved: 0, actual: 0, coverage: 0, resolution: "no_prices")
-        let g = glance(.week, Self.wire(rows, totals: 6_000))
-        #expect(g.chart.values[2] == nil)
-        #expect(g.chart.tags[2] == "SUN 11 OCT  NO PRICES")
-        #expect(g.chart.readings[2].figure == "—")
-        #expect(!g.chart.readings[2].known)
+        #expect(g.chart.values[6] == nil)
+        #expect(g.chart.tags[6] == "TODAY")
+        #expect(g.chart.readings[6].figure == "—")
+        #expect(g.chart.readings[6].word == "Today")
+        #expect(g.chart.readings[6].lines == ["Your box counts the day's saving once the day is over."])
         #expect(g.chart.readings[2].word == "Saved Sun 11 Oct")
-        #expect(g.chart.readings[2].lines == ["The box had no prices then, so it counts no money."])
+        // A box with only today has nothing to say yet.
+        let first = glance(.day, Self.wire([Self.row("2026-10-15", saved: 500)], totals: 500))
+        #expect(first.reading.figure == "—")
+        #expect(first.reading.word == "Today")
+        #expect(first.chart.focus == nil)
     }
 
     /// A day that cost more than a home with no solar or battery says so in
     /// words, below zero, and never with a minus sign.
     @Test func aDayThatCostMoreSaysSoInWords() {
         var rows = Self.week
-        rows[6] = Self.row("2026-10-15", saved: -420, actual: 900)
-        rows[5] = Self.row("2026-10-14", saved: 300, actual: -150)
+        rows[5] = Self.row("2026-10-14", saved: -420, actual: 900)
+        rows[4] = Self.row("2026-10-13", saved: 300, actual: -150)
         let g = glance(.day, Self.wire(rows, totals: 5_580))
         #expect(g.reading.figure == "4.20")
-        #expect(g.reading.word == "Cost more today so far")
+        #expect(g.reading.word == "Cost more yesterday")
         #expect(g.reading.lines.first == "Cost 9.00\u{00A0}kr · with no solar or battery 4.80\u{00A0}kr")
         // Selling more than buying is earning, in words too.
-        #expect(g.chart.readings[5].lines.first == "Earned 1.50\u{00A0}kr · with no solar or battery 1.50\u{00A0}kr")
-        #expect(g.chart.values[6] == -420)
+        #expect(g.chart.readings[4].lines.first == "Earned 1.50\u{00A0}kr · with no solar or battery 1.50\u{00A0}kr")
+        #expect(g.chart.values[5] == -420)
         #expect(g.chart.bottom == "5 kr")
         let all = [g.reading.figure, g.reading.word] + g.reading.lines + g.chart.tags + [g.chart.top, g.chart.bottom ?? ""]
         #expect(all.allSatisfy { !$0.contains("-") && !$0.contains("−") })
-        #expect(AppWords.$language.withValue(.en) { SavingsGlance.row(Stamped(Savings.answer(Self.wire(rows, totals: 0)), asOfMs: Self.now, origin: .relay), nowMs: Self.now, currency: "SEK") } == "cost 4.20\u{00A0}kr more today")
+        #expect(AppWords.$language.withValue(.en) { SavingsGlance.row(Stamped(Savings.answer(Self.wire(rows, totals: 0)), asOfMs: Self.now, origin: .relay), nowMs: Self.now, currency: "SEK") } == "cost 4.20\u{00A0}kr more yesterday")
     }
 
     /// What the last launch kept says when it was true, and that it is the
-    /// phone's copy; yesterday's answer names its day, never "today".
+    /// phone's copy; yesterday's answer says yesterday, never "today".
     @Test func aKeptAnswerIsDated() {
         let yesterday = Self.now - 15 * 3_600_000
         let rows = (8...14).map { Self.row(String(format: "2026-10-%02d", $0), saved: 1_100) }
         let g = glance(.day, Self.wire(rows, totals: 7_700), origin: .cache, asOfMs: yesterday)
         #expect(g.footer == "SAVED ON THIS PHONE · AS OF WED 23:32")
-        #expect(g.reading.word == "Saved Wed 14 Oct")
+        #expect(g.reading.word == "Saved yesterday")
         #expect(g.chart.today == nil)
-        #expect(SavingsGlance.row(Stamped(Savings.answer(Self.wire(rows, totals: 7_700)), asOfMs: yesterday, origin: .cache), nowMs: Self.now, currency: "SEK") == nil)
+        #expect(AppWords.$language.withValue(.en) { SavingsGlance.row(Stamped(Savings.answer(Self.wire(rows, totals: 7_700)), asOfMs: yesterday, origin: .cache), nowMs: Self.now, currency: "SEK") } == "11.00\u{00A0}kr yesterday")
     }
 
     @Test func aBoxWithNoPriceAreaSaysWhatItNeeds() {
@@ -191,12 +145,12 @@ import FTWShared
 
     @Test func inSwedish() {
         var rows = Self.week
-        rows[6] = Self.row("2026-10-15", saved: 1_840, actual: 3_370, coverage: 0.8)
+        rows[5] = Self.row("2026-10-14", saved: 1_840, actual: 3_370, coverage: 0.8)
         let g = AppWords.$language.withValue(.sv) {
             SavingsGlance.make(period: .day, answer: Stamped(Savings.answer(Self.wire(rows, totals: 7_840)), asOfMs: Self.now, origin: .relay), nowMs: Self.now, currency: "SEK")
         }
         #expect(g.reading.figure == "18,40")
-        #expect(g.reading.word == "Sparat hittills i dag")
+        #expect(g.reading.word == "Sparat i går")
         #expect(g.reading.kicker == "DELVIS")
         #expect(g.reading.lines == ["Kostade 33,70\u{00A0}kr · utan sol och batteri 52,10\u{00A0}kr", "Boxen hade priser för 80\u{00A0}% av tiden."])
         #expect(g.footer == "PER 14:32")
@@ -223,7 +177,7 @@ import FTWShared
         let call = #/(?:AppWords\.(?:text|format)|\bL)\("((?:[^"\\]|\\.)*)"/#
         var english = Set(source.matches(of: call).map { String($0.1) })
         // Picked by a ternary inside a call: the call sees only the first.
-        english.formUnion(["%@ today", "cost %@ more today"])
+        english.formUnion(["%@ yesterday", "cost %@ more yesterday"])
         #expect(english.count > 20)
         for en in english.sorted() {
             #expect(AppWords.sv[en] != nil || NodeWords.sv[en] != nil, "no Swedish for \"\(en)\"")

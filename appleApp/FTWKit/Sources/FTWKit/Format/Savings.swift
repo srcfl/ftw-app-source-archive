@@ -155,11 +155,20 @@ public struct SavingsGlance: Equatable, Sendable {
                                   lines: [AppWords.text("Your box counts savings once it knows your price area.")])
             return SavingsGlance(period: period, reading: reading, chart: .empty, footer: footer, placeholder: false)
         }
-        let chart = SavingsChart.make(a.days, focus: period == .day ? a.days.count - 1 : nil, today: today, calendar: calendar, money: money)
+        // A day's saving is said once the day is over. Mid-day it is not
+        // known: a battery charged in the morning for the evening reads as
+        // a loss until the evening comes (xorath and Fredrik, 10 Nov 2026).
+        let closed = a.days.lastIndex { $0.day != today }
+        let chart = SavingsChart.make(a.days, focus: period == .day ? closed : nil, today: today, calendar: calendar, money: money)
         let reading: Reading
         switch period {
         case .day:
-            reading = Self.reading(last, when: Self.when(day: last.day, today: today, calendar: calendar), money: money)
+            if let closed {
+                let d = a.days[closed]
+                reading = Self.reading(d, when: Self.when(day: d.day, today: today, calendar: calendar), money: money)
+            } else {
+                reading = Self.counting(money)
+            }
         case .week, .month:
             let first = a.days.first?.day ?? last.day
             let span = first == last.day ? Self.when(day: last.day, today: today, calendar: calendar) : Self.range(first, last.day, calendar: calendar)
@@ -209,10 +218,24 @@ public struct SavingsGlance: Equatable, Sendable {
         var isToday = false
     }
 
-    /// "today so far" for today, else "Tue 14 Oct".
+    /// "today so far" for today, "yesterday", else "Tue 14 Oct".
     static func when(day: String, today: String, calendar: Calendar) -> Phrase {
         if day == today { return Phrase(text: "", isToday: true) }
+        if day == yesterday(today, calendar: calendar) { return Phrase(text: AppWords.text("yesterday")) }
         return Phrase(text: dayText(day, calendar: calendar))
+    }
+
+    /// The day before `today`, by name.
+    static func yesterday(_ today: String, calendar: Calendar) -> String? {
+        guard let parts = Savings.dayParts(today), let date = calendar.date(from: parts),
+              let before = calendar.date(byAdding: .day, value: -1, to: date) else { return nil }
+        return Savings.dayName(before.timeIntervalSince1970 * 1000, calendar: calendar)
+    }
+
+    /// Today, before it is over: no figure and no verdict.
+    static func counting(_ money: SavingsMoney) -> Reading {
+        Reading(figure: "—", unit: money.unit, word: AppWords.text("Today"), kicker: nil, known: false,
+                lines: [AppWords.text("Your box counts the day's saving once the day is over.")])
     }
 
     /// "Tue 14 Oct" / "tis 14 okt".
@@ -254,20 +277,21 @@ public struct SavingsGlance: Equatable, Sendable {
             let reading = Reading(figure: "—", unit: money.unit, word: AppWords.text("Savings"), kicker: nil, known: false, lines: [problem])
             return SavingsGlance(period: period, reading: reading, chart: .empty, footer: " ", placeholder: false)
         }
-        let reading = Reading(figure: money.figure(1_840), unit: money.unit, word: AppWords.text("Saved today so far"), kicker: nil, known: false,
+        let reading = Reading(figure: money.figure(1_840), unit: money.unit, word: AppWords.format("Saved %@", AppWords.text("yesterday")), kicker: nil, known: false,
                               lines: [AppWords.text("Reading the savings from your box…")])
         return SavingsGlance(period: period, reading: reading, chart: .empty, footer: " ", placeholder: true)
     }
 
-    /// The home node's row: "18,40 kr today", or nil when the box's last
-    /// day is not today or has no price.
+    /// The home node's row: "18,40 kr yesterday", or nil when the box has
+    /// no priced row for yesterday. Today is said once it is over.
     public static func row(_ answer: Stamped<Savings.Answer>?, nowMs: Double, currency: String) -> String? {
-        guard let a = answer?.value, let last = a.days.last, last.priced else { return nil }
+        guard let a = answer?.value else { return nil }
         let calendar = EVText.calendar(EVText.householdZone(boxTZ: a.tz))
-        guard last.day == Savings.dayName(nowMs, calendar: calendar) else { return nil }
+        let wanted = yesterday(Savings.dayName(nowMs, calendar: calendar), calendar: calendar)
+        guard let day = a.days.last(where: { $0.day == wanted }), day.priced else { return nil }
         let money = SavingsMoney(currency: currency)
-        let more = last.savedMinor < 0 && money.figure(last.savedMinor) != money.figure(0)
-        return AppWords.format(more ? "cost %@ more today" : "%@ today", money.text(last.savedMinor))
+        let more = day.savedMinor < 0 && money.figure(day.savedMinor) != money.figure(0)
+        return AppWords.format(more ? "cost %@ more yesterday" : "%@ yesterday", money.text(day.savedMinor))
     }
 }
 
@@ -313,7 +337,7 @@ public struct SavingsChart: Equatable, Sendable {
 
     /// Saved per day, minor units; nil when the box had no price that day.
     public var values: [Double?]
-    /// The day still filling: drawn hatched, on its way.
+    /// Today, still counting: no bar until the day is over.
     public var today: Int?
     public var partial: Set<Int>
     /// The Day view's day, in full ink among the week.
@@ -341,7 +365,7 @@ public struct SavingsChart: Equatable, Sendable {
                                     landmarks: [], top: "", bottom: nil, readings: [])
 
     static func make(_ days: [Savings.Figures], focus: Int?, today: String, calendar: Calendar, money: SavingsMoney) -> SavingsChart {
-        let values: [Double?] = days.map { $0.priced ? $0.savedMinor : nil }
+        let values: [Double?] = days.map { $0.priced && $0.day != today ? $0.savedMinor : nil }
         let known = values.compactMap { $0 }
         let domain = YDomain.stable(low: known.min() ?? 0, high: known.max() ?? 0, floor: 100)
         let todayIndex = days.lastIndex { $0.day == today }
@@ -352,11 +376,13 @@ public struct SavingsChart: Equatable, Sendable {
 
         let tags = days.map { d -> String in
             let name = d.day == today ? AppWords.text("TODAY") : SavingsGlance.dayText(d.day, calendar: calendar)
+            if d.day == today { return name.uppercased() }
             guard d.priced else { return (name + "  " + AppWords.text("NO PRICES")).uppercased() }
             return (name + "  " + money.text(d.savedMinor) + (d.partial ? " · " + AppWords.text("PARTIAL") : "")).uppercased()
         }
         let readings = days.map { d in
-            SavingsGlance.reading(d, when: SavingsGlance.when(day: d.day, today: today, calendar: calendar), money: money)
+            d.day == today ? SavingsGlance.counting(money)
+                : SavingsGlance.reading(d, when: SavingsGlance.when(day: d.day, today: today, calendar: calendar), money: money)
         }
 
         // A week names each day; a month names the first of each week.

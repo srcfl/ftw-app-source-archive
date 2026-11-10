@@ -119,7 +119,7 @@ private struct SavingsPage: View, Equatable {
     }
 }
 
-/// "18,40 kr", and under it "Saved today so far". Under a finger it gives
+/// "18,40 kr", and under it "Saved yesterday". Under a finger it gives
 /// way to that day with no animation; on lift it comes back with the
 /// spring. "PARTIAL" sits beside the words when the box had prices for
 /// less of the time than counts as whole.
@@ -253,7 +253,7 @@ private struct SavingsBarsChart: View {
 }
 
 /// A bar per day in ink: a saving above zero, a day that cost more below
-/// it. Today, still filling, is hatched: on its way. A day the box priced
+/// it. Today has no bar until it is over. A day the box priced
 /// only in part is fainter; a day it had no price for is a dotted stub on
 /// zero. In the Day view the day stands in full ink and the week behind it
 /// dims. The top of the scale sits in the right gutter, the days under the
@@ -304,6 +304,8 @@ struct SavingsBarsDrawing: ChartDrawing {
             let b0 = snap(plot.minX + grid.x(atMs: grid.endMs(i), width: plot.width)) - px
             let inset = snap((b0 - a0) * (1 - share) / 2)
             let a = a0 + inset, b = b0 - inset
+            // Today has no bar until it is over.
+            if i == chart.today { continue }
             guard let v = chart.values[i] else {
                 // The box had no price: it confirms no money that day.
                 var stub = Path()
@@ -319,27 +321,13 @@ struct SavingsBarsDrawing: ChartDrawing {
                 ? RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r)
                 : RectangleCornerRadii(topLeading: 0, bottomLeading: r, bottomTrailing: r, topTrailing: 0)
             let bar = Path(roundedRect: rect, cornerRadii: radii, style: .continuous)
-            let filling = i == chart.today
             let alpha: Double
             if let focus = chart.focus {
                 alpha = i == focus ? 1 : 0.2
             } else {
-                alpha = filling || chart.partial.contains(i) ? 0.3 : 0.55
+                alpha = chart.partial.contains(i) ? 0.3 : 0.55
             }
             g.fill(bar, with: .color(Theme.ink.opacity(alpha)))
-            if filling {
-                var hatch = g
-                hatch.clip(to: bar)
-                var lines = Path()
-                var x = rect.minX - rect.height
-                while x < rect.maxX {
-                    lines.move(to: CGPoint(x: x, y: rect.maxY))
-                    lines.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
-                    x += 4
-                }
-                let ink = i == chart.focus ? Theme.ground.opacity(0.45) : Theme.ink.opacity(0.5)
-                hatch.stroke(lines, with: .color(ink), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
-            }
         }
 
         // TODAY first, then each day that has room.

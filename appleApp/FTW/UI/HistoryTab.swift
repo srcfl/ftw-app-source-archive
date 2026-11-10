@@ -57,7 +57,8 @@ struct HistoryTabView: View {
     }
 }
 
-/// "18,40 kr", "Saved today so far", into the savings view.
+/// "18,40 kr", "Saved yesterday", into the savings view. A day's saving
+/// is said once the day is over.
 private struct HistorySavings: View {
     let home: HomeModels
     let zoom: Namespace.ID
