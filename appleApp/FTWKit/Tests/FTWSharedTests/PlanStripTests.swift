@@ -166,8 +166,9 @@ import Testing
         #expect(s.readouts[24] == "02:00 · 30 öre · waits · car charges")
         #expect(s.readouts[34] == "04:30 · 70 öre · waits · car at 80\u{00A0}%")
         #expect(s.quarters.count == 48)
-        #expect(s.quarters[0] == .init(time: "20:00", price: "160"))
-        #expect(s.quarters[24] == .init(time: "02:00", price: "30"))
+        // The header over the strip says the same without the time and price.
+        #expect(s.quarters[0] == .init(time: "20:00", price: "160", doing: "discharges"))
+        #expect(s.quarters[24] == .init(time: "02:00", price: "30", doing: "waits · car charges"))
         for (q, line) in zip(s.quarters, s.readouts) {
             #expect(line.hasPrefix("\(q.time) · \(q.price ?? "") öre"))
         }

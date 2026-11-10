@@ -93,11 +93,17 @@ private struct SavingsPage: View, Equatable {
             SavingsHero(glance: glance, scrub: scrub)
                 .redacted(reason: hidden)
                 .padding(.horizontal, 20)
+            // Over the chart, where a thumb on it never covers the words
+            // (xorath, 10 Nov 2026).
+            SavingsReadout(glance: glance, scrub: scrub)
+                .redacted(reason: hidden)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
             SavingsBarsChart(chart: glance.chart, scrub: scrub)
                 .redacted(reason: hidden)
                 .frame(minHeight: fill ? 170 : 220, idealHeight: 260, maxHeight: 340)
                 .padding(.horizontal, 16)
-                .padding(.top, 20)
+                .padding(.top, 16)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             Picker(L("Period"), selection: $period.animation(.easeInOut(duration: 0.2))) {
                 ForEach(Savings.Period.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -106,10 +112,6 @@ private struct SavingsPage: View, Equatable {
             .accessibilityIdentifier("savings.period")
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            SavingsReadout(glance: glance, scrub: scrub)
-                .redacted(reason: hidden)
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
             if fill { Spacer(minLength: 8) }
             SavingsFooter(text: glance.footer)
                 .padding(.horizontal, 20)
@@ -170,7 +172,7 @@ private struct SavingsHero: View {
     }
 }
 
-/// Two reserved lines under the picker: what the period cost against a
+/// Two reserved lines over the chart: what the period cost against a
 /// home with no solar or battery, and what was bought and sold, or under a
 /// finger the same for that day. The page never moves.
 private struct SavingsReadout: View {

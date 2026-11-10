@@ -15,12 +15,13 @@ import SwiftUI
 ///
 /// The price in the header opens the price; a tap on a pass chooses it; a
 /// tap anywhere else opens the plan, as the chevron by `NEXT 12 H` says. A drag of 4 pt or more reads
-/// the quarters one at a time: the quarter under the finger lights, the
-/// header names its time and price, the sentence goes at once and what
-/// happens in that quarter fades in, `.selection` ticks per quarter and a
-/// light impact marks now, the cheapest hours' edges and the car's goal.
-/// On lift the sentence comes back. Only the overlay, the header's price
-/// and the sentence read the finger, so a drag redraws those and nothing
+/// the quarters one at a time: the quarter under the finger lights, and
+/// the header over the strip names its time and price on the right and
+/// what the plan does then on the left, where the thumb never covers it
+/// (xorath, 10 Nov 2026). What sits under the strip holds still.
+/// `.selection` ticks per quarter and a light impact marks now, the
+/// cheapest hours' edges and the car's goal. Only the overlay and the
+/// header's two ends read the finger, so a drag redraws those and nothing
 /// else.
 ///
 /// In the plan the strip sits in the page's scroll and has no gesture of
@@ -154,7 +155,7 @@ struct PlanStripView: View, Equatable {
             // Where the drawing is on the screen, for the page's touches:
             // written to a plain reference, so a scroll redraws nothing.
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
-            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: sentenceFirst ? strip.passes.first { $0.id == chosenID } : chosen, readouts: strip.readouts, model: scrub, site: site)
+            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: sentenceFirst ? strip.passes.first { $0.id == chosenID } : chosen, site: site)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -205,9 +206,8 @@ struct PlanStripView: View, Equatable {
     /// next, so the two never overlap.
     private var header: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 kickerLine
-                Spacer(minLength: 8)
                 priceRoom
             }
             VStack(alignment: .leading, spacing: 4) {
@@ -219,20 +219,7 @@ struct PlanStripView: View, Equatable {
     }
 
     private var kickerLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(priceLabel.map { strip.kicker + " · " + $0 } ?? strip.kicker)
-                .font(mono)
-                .tracking(0.5)
-                .foregroundStyle(Theme.ink2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .contentTransition(.opacity)
-            if opensPlan {
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Theme.ink3)
-            }
-        }
+        StripKicker(strip: strip, label: priceLabel.map { strip.kicker + " · " + $0 } ?? strip.kicker, opensPlan: opensPlan, model: scrub, mono: mono)
     }
 
     /// The price's line, never drawn: it gives the header the price's
@@ -389,44 +376,70 @@ private struct StripPrice: View {
 /// "…". On touch-down the sentence goes at once and the quarter's line
 /// fades in over 0.1 s, so the two never sit on top of each other; on lift
 /// the quarter's line goes in 0.1 s and the sentence comes back over 0.2 s.
+/// The kicker, or under a finger what the plan does in its quarter, in
+/// the same place over the strip. The kicker keeps its room, so the header
+/// never changes its layout under the finger.
+private struct StripKicker: View {
+    let strip: PlanStrip
+    let label: String
+    let opensPlan: Bool
+    let model: ScrubModel
+    let mono: Font
+
+    var body: some View {
+        let doing = model.index.flatMap { strip.quarters.indices.contains($0) ? strip.quarters[$0].doing : nil }
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(label)
+                .font(mono)
+                .tracking(0.5)
+                .foregroundStyle(Theme.ink2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .contentTransition(.opacity)
+            if opensPlan {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Theme.ink3)
+            }
+        }
+        .opacity(doing == nil ? 1 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            if let doing {
+                Text(doing.uppercased())
+                    .font(mono)
+                    .tracking(0.5)
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+        }
+        .transaction { $0.animation = nil }
+    }
+}
+
+/// Under the strip: the chosen pass's three figures, or the sentence. It
+/// holds still under a finger; the quarter's words are over the strip.
 private struct StripSentence: View {
     let sentence: String
     let shorter: [String]
     let placeholder: Bool
     let grey: Bool
     let pass: PlanPass?
-    let readouts: [String]
-    let model: ScrubModel
     let site: SiteModel?
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        let down = model.isDown
-        let reading: String = {
-            guard case let .slot(i)? = model.shown, readouts.indices.contains(i) else { return " " }
-            return readouts[i]
-        }()
-        ZStack(alignment: .topLeading) {
-            Group {
-                if let pass, !placeholder {
-                    LevelNowFigures(pass: pass, grey: grey, site: site)
-                } else {
-                    said
-                        .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)
-                        .redacted(reason: placeholder ? .placeholder : [])
-                }
+        Group {
+            if let pass, !placeholder {
+                LevelNowFigures(pass: pass, grey: grey, site: site)
+            } else {
+                said
+                    .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)
+                    .redacted(reason: placeholder ? .placeholder : [])
             }
-                .opacity(down ? 0 : 1)
-                // Back only once the quarter's line has gone.
-                .animation(down ? nil : .easeOut(duration: 0.2).delay(0.1), value: down)
-                .animation(.easeOut(duration: 0.2), value: sentence)
-            Text(reading)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(Theme.ink)
-                .lineLimit(lines, reservesSpace: !typeSize.isAccessibilitySize)
-                .opacity(down ? 1 : 0)
-                .animation(.easeOut(duration: 0.1), value: down)
         }
+        .animation(.easeOut(duration: 0.2), value: sentence)
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
     }

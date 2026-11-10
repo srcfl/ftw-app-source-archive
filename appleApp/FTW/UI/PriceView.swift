@@ -176,6 +176,14 @@ private struct PricePage: View, Equatable {
             PriceHero(chart: chart, zone: zone, dayName: TimelineLabel.window(drawn, nowMs: minuteMs, clock: clock), scrub: scrub)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .fixedSize(horizontal: false, vertical: true)
+            // Over the chart, where a thumb on it never covers the words
+            // (xorath, 10 Nov 2026). Nothing is included in a price the
+            // window does not have.
+            if !chart.isEmpty {
+                PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
+                    .padding(.top, 8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // The chart stays whether the window is priced or not: it is
             // what the finger moves through time, so a window with no
             // prices can still be dragged out of. What the rest leaves,
@@ -197,7 +205,7 @@ private struct PricePage: View, Equatable {
             }
             .frame(minHeight: 240, idealHeight: 240, maxHeight: chartMax ?? 240)
             .layoutPriority(1)
-            .padding(.top, 24)
+            .padding(.top, 16)
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .accessibilityElement()
             .accessibilityLabel(L("Electricity price"))
@@ -205,15 +213,10 @@ private struct PricePage: View, Equatable {
             .accessibilityChartDescriptor(PriceDescriptor(chart: chart))
             .accessibilityIdentifier("price.chart")
             if chartMax != nil { Spacer(minLength: 0) }
-            // Nothing is included in a price the window does not have.
             if !chart.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
-                        .padding(.top, 16)
-                    PlanAtThesePrices(line: chart.planLine, short: chart.planLineShort)
-                        .padding(.top, 8)
-                }
-                .fixedSize(horizontal: false, vertical: true)
+                PlanAtThesePrices(line: chart.planLine, short: chart.planLineShort)
+                    .padding(.top, 16)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -334,7 +337,7 @@ private struct PlanAtThesePrices: View {
     }
 }
 
-/// Two reserved lines under the chart: what the price holds, or under a
+/// Two reserved lines over the chart: what the price holds, or under a
 /// finger what the plan does in that slot. The page never moves.
 private struct PriceReadout: View {
     let chart: PriceChart
